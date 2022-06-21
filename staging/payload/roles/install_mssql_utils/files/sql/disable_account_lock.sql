@@ -1,0 +1,1 @@
+UPDATE GxGlobalParam SET value = 0 WHERE name = 'AccountLockDuration'

@@ -1,0 +1,1 @@
+UPDATE umusers password = '3fc7db51c802230cab5b805a58d49991d' WHERE (id = 1 OR login = 'admin' OR login = 'cvadmin' OR login = 'ROMS')

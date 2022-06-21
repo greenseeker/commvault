@@ -1,0 +1,9 @@
+# If this is non-interactive, just exit.
+[ ! -t 0 ] && return
+
+# Create the variables.
+export MSSQL_CLI_SERVER='localhost'
+export MSSQL_CLI_DATABASE='commserv'
+export MSSQL_CLI_USER='sa'
+export MSSQL_CLI_PASSWORD='{{ new_root_password }}'
+export MSSQL_CLI_ROW_LIMIT=0
