@@ -1,0 +1,16 @@
+---
+- name: Copy profile scripts to /etc/profile.d
+# These scripts run at user login to configure the environment.
+  copy:
+    src: "{{ item }}"
+    dest: /etc/profile.d
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - colorip.sh          # colorize 'ip' command output
+    - colordmesg.sh       # colorize 'dmesg' command output
+    - history.sh          # set HISTIGNORE and HISTCONTROL
+    - commvaultps1.sh     # set PS1 with Commvault colors
+  ignore_errors: yes
+...

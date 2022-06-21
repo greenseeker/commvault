@@ -1,0 +1,9 @@
+---
+- name: dnf install knockd
+  ignore_errors: yes
+  environment: 
+    http_proxy: "{{ proxy_url }}"
+    https_proxy: "{{ proxy_url }}"
+  dnf:
+    name: knock-server
+    state: present
