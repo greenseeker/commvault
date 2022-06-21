@@ -1,0 +1,2 @@
+---
+template_sa_password: "1StrongPassword!"          # The default sa password from the VM template.

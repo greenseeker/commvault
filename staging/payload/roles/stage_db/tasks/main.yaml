@@ -1,0 +1,102 @@
+---
+- name: Start/Enable SQL Server
+# Make sure MSSQL is running and enabled.
+  systemd:
+    name: mssql-server.service
+    state: started
+    enabled: yes
+
+- name: Copy get_timezone.sql to /run/staging
+# By copying this into /run/staging instead of running it where it is, it gets
+# captured for later review when using test_mode.
+  copy:
+    src: get_timezone.sql
+    dest: /run/staging/
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create /run/staging/csdb_changes.sql from template
+# Replace the placeholder text in change_sa_password.sql with the new sa 
+# password (same as root).
+  template:
+    src: csdb_changes.sql.j2
+    dest: /run/staging/csdb_changes.sql
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create directory for DB and Logs
+# This should exist already but added this task just to be thorough.
+# CSRecoveryAssistant will fail if told to use directories that don't 
+# exist.
+  file:
+    path: /opt/commvaultDB/CommServ/
+    state: directory
+    owner: root
+    group: commvault
+    mode: '0770'
+
+- name: Wait until SQL Server (port 1433) is ready
+# Make sure SQL Server is responsive before continuing.
+  wait_for: 
+    port: 1433
+    state: started
+    timeout: 300 # 5 min max wait
+
+- debug: var=database_path 
+
+- name: Restore CSDB and run update queries
+# If a CSDB database_path has been provided, restore the DB, alter it for 
+# staging, and get the MS time zone from the DB.
+  include_tasks: restore_db.yaml
+  when: database_path|lower != "nodb"
+
+- name: Process DB for NODB staging
+# If staging without DB, run CSRA to update the existing DB.
+  include_tasks: nodb.yaml
+  when: database_path|lower == "nodb"
+  
+- name: Run SQL script to update values in the database
+# This script changes a variety of settings within the CSDB.
+  command: "{{ sqlcmd_run_script }} /run/staging/csdb_changes.sql"
+
+- name: Set timezone to {{ cs_timezone }}
+# Set the OS timezone to the value determined above.
+  ignore_errors: yes
+  community.general.timezone:
+    name: "{{ cs_timezone }}"
+
+- name: Update OEM.properties file with staging hostname and 'admin' username
+# The OEM.properties file still has the template name, so we set consoleServer
+# to the FQDN. The username will allow for automatic login when paired with
+# adding the password to galaxy.jnlp.
+  lineinfile:
+    path: /opt/commvault/GUI/OEM.properties
+    line: "{{ item.line }}"
+    regexp: '{{ item.regex }}'
+  loop:
+    - {line: 'consoleServer={{ fqdn }}', regex: 'consoleServer=.+'}
+    - {line: 'username=admin', regex: 'username=.+'}
+
+- name: pip install lxml
+# Required for community.general.xml below
+  environment: 
+    # These environment variables allow internet access.
+    http_proxy: "{{ proxy_url }}"
+    https_proxy: "{{ proxy_url }}"
+  pip:
+    executable: pip3
+    name: lxml
+    state: present
+
+
+- name: Update galaxy.jnlp with the admin password
+# Add the password to the jnlp file so that the user is automatically logged
+# in at launch.
+  community.general.xml:
+    path: /opt/commvault/GUI/Web/jnlp-template/galaxy.jnlp
+    xpath: /jnlp/application-desc
+    add_children:
+    - argument: -password=admin
+...

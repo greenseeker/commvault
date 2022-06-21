@@ -1,0 +1,44 @@
+use commserv
+-- If the customer has named another user 'admin' besides id 1, rename it to 'CUSTOMER_admin' and add a note to the description.
+UPDATE umusers SET login = 'CUSTOMER_admin', description = "[ Was 'admin' in customer's environment; Renamed by staging ] " + char(10) + description where login = 'admin' and id != 1
+
+-- Make sure the admin user is enabled, named 'admin', and its password is 'admin'.
+UPDATE umusers SET enabled = 1, password = '3fc7db51c802230cab5b805a58d49991d', login = 'admin' WHERE id = 1
+
+-- Disable activity.
+UPDATE JMJobAction SET action = 1 WHERE clientId = 1 AND appType = 0 AND opType != 8 AND appId = 1
+
+-- Change the CSDB IndexCache path to match staging.
+UPDATE APP_CLIENTPROP set attrVal = '/opt/commvault/MediaAgent/IndexCache' WHERE componentNameId = 2 AND attrName = 'Idx: cache path'
+
+-- Redirect all email to Inbucket
+UPDATE APP_CommCell SET smtpServer = 'localhost' WHERE clientId = 2
+UPDATE GXGlobalParam SET value = 25 where name = 'EVSMTPport'
+UPDATE GXGlobalParam SET value = 0 where name = 'EVSMTPIsCredentialRequired'
+UPDATE GXGlobalParam SET value = '{{ host }}@staging.ce.commvault.com' where name = 'EVSMTPSender'
+UPDATE GXGlobalParam SET value = '{{ host }}' where name = 'EVSMTPDisplayName'
+
+-- Tarnish the client hostnames so the staging system can't contact them.
+UPDATE APP_Client SET net_hostname = net_hostname + '.STAGING' WHERE ID != 1 AND ID != 2 AND net_hostname NOT LIKE '%_IndexServer' 
+AND net_hostname NOT LIKE '%_AnalyticsServer' AND net_hostname NOT LIKE '%STAGING'
+
+-- Update Private Metrics to report to the staging server
+UPDATE GXGlobalParam SET name = name + '.STAGING' WHERE name = 'CommservSurveyPrivateUploadsite' OR name = 'CommservSurveyPrivateUploadsite'
+UPDATE GXGlobalParam SET value = 'https://localhost/' WHERE name = 'CommservSurveyPrivateUploadsite' OR name = 'CommservSurveyPrivateUploadsite'
+
+-- Disable notifications.
+UPDATE ntnotificationrule SET status = 1
+
+-- Disable 2FA.
+UPDATE GXGlobalParam SET value = 0, modified = (SELECT DATEDIFF(s, '1970-01-01 00:00:00', GETUTCDATE())) WHERE name='EnableTwoFactorAuthentication'
+
+-- Reduce account lockout period to 0.
+UPDATE GxGlobalParam SET value = 0 WHERE name = 'AccountLockDuration'
+
+-- Tarnish CS Additional Settings tab to prevent interference, but leave them visible for awareness.
+UPDATE APP_AdvanceSettings SET keyname = keyname + '.STAGING' 
+WHERE (keyname = 'WebConsoleURL' OR keyname = 'baseURL' OR keyname = 'nPort' OR keyname = 'nCloudPort' OR keyname = 'nWFPort') 
+AND keyname NOT LIKE '%.STAGING'
+
+-- Update WebConsoleURL in GxGlobalParam with the staging system hostname.
+UPDATE GxGlobalParam set value = 'http://{{ fqdn }}/webconsole/clientDetails/fsDetails.do?clientName=CLIENTNAME' WHERE name = 'WebConsoleURL'

@@ -1,0 +1,53 @@
+---
+- name: Start/Enable SQL Server
+# Make sure MSSQL is running and enabled.
+  systemd:
+    name: mssql-server.service
+    state: started
+    enabled: yes
+
+- name: Copy SQL Scripts to /run/staging
+# By copying this script into /run/staging instead of running it where it is
+# it gets captured for later review when using test_mode.
+  copy:
+    src: set_max_server_memory.sql
+    dest: /run/staging/
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create /run/staging/change_sa_password.sql from template
+# Replace the placeholder text in change_sa_password.sql with the new sa 
+# password (same as root).
+  template:
+    src: change_sa_password.sql.j2
+    dest: /run/staging/change_sa_password.sql
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Wait until SQL Server (port 1433) is ready
+# Make sure SQL Server is responsive before continuing.
+  wait_for: 
+    port: 1433
+    state: started
+    timeout: 300
+
+- name: Change the sa password to {{ new_root_password }}
+# Execute change_sa_password.sql with sqlcmd to change the sa password.
+  command: "/opt/mssql-tools/bin/sqlcmd -U sa -P '{{ template_sa_password }}' -h -1 -m 1 -i /run/staging/change_sa_password.sql"
+  ignore_errors: yes
+  register: change_sa_password
+
+- name: Update staging report
+# If changing the sa password failed, write it to the report file.
+  lineinfile:
+    path: /root/staging_report.txt
+    create: yes
+    line: The SQL Server SA password was not updated. You can reset it by running "/opt/mssql/bin/mssql-conf set-sa-password".
+  when: change_sa_password.failed|bool
+
+- name: Set the SQL Server memory limit
+# Execute set_max_server_memory.sql with sqlcmd to set the instance memory
+# limit.
+  command: "{{ sqlcmd_run_script }} /run/staging/set_max_server_memory.sql"

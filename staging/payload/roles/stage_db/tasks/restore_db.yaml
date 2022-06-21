@@ -1,0 +1,60 @@
+---
+- name: CSDB Recovery block
+  block:
+  - name: Convert database_path UNC to NFS
+  # These regex_replace commands look ridiculous because of multiple levels
+  # of escaping (Ansible, Jinja, Linux). We're actually changing '\\eng' to
+  # '/mnt', then '\' to '/'.
+    set_fact:
+      database_path: "{{ database_path | regex_replace('^\\\\\\\\eng', '/mnt') | regex_replace('\\\\', '/') }}"
+
+  - name: Strip the filename from database_path
+  # -dbdumplocation takes the path without the filename, so the join/split 
+  # filters remove the filename from the path.
+    set_fact: 
+      database_path: "{{ '/'.join(database_path.split('/')[0:-1]) }}"
+
+  - name: Restore CSDB with CSRecoveryAssistant   
+    command: "/opt/commvault/Base/CSRecoveryAssistant.sh -operation Staging -dbdumplocation {{ database_path }} -dbfilelocation /opt/commvaultDB/CommServ -dblogfilelocation /opt/commvaultDB/CommServ -tononcluster -disableallschedules -suspendalljobs -disableddbactivity"
+
+  rescue:
+  - name: Check CSRecoveryAssistant.log for binary mismatch error
+  # If CSRA failed, check the log to see if it was because of a binary/DB
+  # mismatch.
+    ignore_errors: yes
+    command: "/usr/bin/grep 'Error encountered probably because of binary and database mismatch' /var/log/commvault/Log_Files/CSRecoveryAssistant.log"
+    register: binary_mismatch_check
+
+  - name: If binary mismatch detected, install maintenance release
+  # If a binary/DB mismatch was found, run the install_commvault_mr role to
+  # resolve the mismatch.
+    include_role: 
+      name: install_commvault_mr
+    when: binary_mismatch_check.rc == 0
+
+  - name: Update staging report
+    # If we ran install_commvault_mr as a result of a binary/DB mismatch, 
+    # record this in the staging report.
+    ignore_errors: yes
+    lineinfile:
+      path: /root/staging_report.txt
+      create: yes
+      line: "MR{{ customer_mr_num }} was installed due to a binary/DB mismatch."
+    when: mount_cvmedia.failed|bool
+
+  - name: Restore CSDB with CSRecoveryAssistant   
+  # Retry CSRA after addressing the issues above.
+    ignore_errors: yes
+    command: "/opt/commvault/Base/CSRecoveryAssistant.sh -operation Staging -dbdumplocation {{ database_path }} -dbfilelocation /opt/commvaultDB/CommServ -dblogfilelocation /opt/commvaultDB/CommServ -tononcluster -disableallschedules -suspendalljobs -disableddbactivity"
+
+  always:
+  - name: Get CS Time Zone from Database
+    ignore_errors: yes
+  # Pull the customer's time zone from the database.
+    command: "{{ sqlcmd_run_script }} /run/staging/get_timezone.sql"
+    register: get_database_timezone
+
+- name: Set cs_timezone to DB value
+  set_fact:
+    cs_timezone: "{{ get_database_timezone.stdout }}"
+...
