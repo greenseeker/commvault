@@ -1,0 +1,34 @@
+---
+- name: Delete root's known_hosts file
+# Login via gotty (ssh to the same host) will balk if there's a
+# fingerprint in the known_hosts file from before the ssh host keys
+# were regenerated.
+  file:
+    path: /root/.ssh/known_hosts
+    state: absent
+
+- name: Delete root's .python_history file
+  file:
+    path: /root/.python_history
+    state: absent
+
+- name: Nice ls coloring
+# .dircolors defines highlighting rules for files in 'ls' output.
+# This one came from https://github.com/trapd00r/LS_COLORS.
+  ignore_errors: yes
+  copy:
+    src: LS_COLORS
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: '0664'
+  loop:
+    - /root/.dircolors
+    - /etc/skel/.dircolors
+
+- name: Change root password to {{ new_root_password }}
+# Here we set the root password to cv_<hostname>.
+  ignore_errors: yes
+  user:
+    name: root
+    password: "{{ new_root_password|password_hash('sha512') }}"

@@ -1,0 +1,163 @@
+---
+- name: Execute "{{ distro_abbreviation }}.yaml"
+# By naming the per-distro task files in a specific pattern, we don't need 
+# conditional statements. See README.md for more info.
+  include_tasks: "{{ distro_abbreviation }}.yaml"
+
+- name: Create mount paths
+# Create the empty directories for the mounts below.
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0777
+  loop:
+    - /mnt/celogs
+    - /mnt/clouduploads
+    - /mnt/cvmedia
+    - /mnt/cvupdates
+    - /mnt/escalationlogs
+
+- name: Mount escalationlogs
+  # CSDB dump will be retrieved from the escalationlogs share.
+  block:
+    - name: NFSv3
+      mount:
+        path: /mnt/escalationlogs/
+        src: eng:/escalationlogs/escalationlogs
+        fstype: nfs
+        opts: nfsvers=3,x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_escalationlogs
+  rescue:
+    - name: NFSv4
+      mount:
+        path: /mnt/escalationlogs/
+        src: eng:/escalationlogs/escalationlogs
+        fstype: nfs4
+        opts: x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_escalationlogs
+
+- name: Update staging report
+  # If setting up the escalationlogs mount failed, write it to the report file.
+  lineinfile:
+    path: /root/staging_report.txt
+    create: yes
+    line: There was a failure when configuring the /mnt/escalationlogs mount.
+  when: mount_escalationlogs.failed|bool
+
+- name: Mount celogs
+# For manual DB restore from celogs share.
+  block:
+    - name: NFSv3
+      mount:
+        path: /mnt/celogs/
+        src: eng:/celogs
+        fstype: nfs
+        opts: nfsvers=3,x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_celogs
+  rescue:
+    - name: NFSv4
+      mount:
+        path: /mnt/celogs/
+        src: eng:/celogs
+        fstype: nfs4
+        opts: x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_celogs
+
+- name: Update staging report
+  # If setting up the celogs mount failed, write it to the report file.
+  lineinfile:
+    path: /root/staging_report.txt
+    create: yes
+    line: There was a failure when configuring the /mnt/celogs mount.
+  when: mount_celogs.failed|bool
+
+- name: Mount CVUpdates
+# Maintenance Releases (HPKs) will be installed from CVUpdates.
+  block:
+    - name: NFSv3
+      mount:
+        path: /mnt/cvupdates/
+        src: eng:/qupdate/qupdate/CVUpdates
+        fstype: nfs
+        opts: nfsvers=3,ro,x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_cvupdates
+  rescue:
+    - name: NFSv4
+      mount:
+        path: /mnt/cvupdates/
+        src: eng:/qupdate/qupdate/CVUpdates
+        fstype: nfs4
+        opts: ro,x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_cvupdates
+
+- name: Update staging report
+  # If setting up the cvupdates mount failed, write it to the report file.
+  lineinfile:
+    path: /root/staging_report.txt
+    create: yes
+    line: There was a failure when configuring the /mnt/cvupdates mount.
+  when: mount_cvupdates.failed|bool
+
+- name: Mount CVMedia
+# In case users need access to install media.
+  block:
+    - name: NFSv3
+      mount:
+        path: /mnt/cvmedia/
+        src: eng:/qupdate/qupdate/CVMedia
+        fstype: nfs
+        opts: nfsvers=3,ro,x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_cvmedia
+  rescue:
+    - name: NFSv4
+      mount:
+        path: /mnt/cvmedia/
+        src: eng:/qupdate/qupdate/CVMedia
+        fstype: nfs4
+        opts: ro,x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_cvmedia
+
+- name: Update staging report
+  # If setting up the cvmedia mount failed, write it to the report file.
+  lineinfile:
+    path: /root/staging_report.txt
+    create: yes
+    line: There was a failure when configuring the /mnt/cvmedia mount.
+  when: mount_cvmedia.failed|bool
+
+- name: Mount CloudUploads
+# For manual DB restore from CloudUploads share.
+  block:
+    - name: NFSv3
+      mount:
+        path: /mnt/clouduploads/
+        src: titan:/cloudriver/CloudUploads
+        fstype: nfs
+        opts: nfsvers=3,ro,x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_clouduploads
+  rescue:
+    - name: NFSv4
+      mount:
+        path: /mnt/clouduploads/
+        src: titan:/cloudriver/CloudUploads
+        fstype: nfs4
+        opts: ro,x-systemd.automount,x-systemd.idle-timeout=60
+        state: present
+      register: mount_clouduploads
+
+- name: Update staging report
+  # If setting up the clouduploads mount failed, write it to the report file.
+  lineinfile:
+    path: /root/staging_report.txt
+    create: yes
+    line: There was a failure when configuring the /mnt/clouduploads mount.
+  when: mount_clouduploads.failed|bool
