@@ -1,8 +1,0 @@
----
-- name: Install dtach                             
-  copy:
-    src: dtach
-    dest: /usr/local/bin/
-    owner: root
-    group: root
-    mode: '0755'

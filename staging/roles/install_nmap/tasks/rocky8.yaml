@@ -1,9 +1,0 @@
----
-- name: Install/Update p7zip
-  ignore_errors: yes
-  environment: 
-    http_proxy: "{{ proxy_url }}"
-    https_proxy: "{{ proxy_url }}"
-  dnf:
-    name: nmap
-    state: latest

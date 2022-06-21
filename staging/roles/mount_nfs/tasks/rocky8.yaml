@@ -1,9 +1,0 @@
----
-- name: Install nfs-utils
-  ignore_errors: yes
-  environment: 
-    http_proxy: "{{ proxy_url }}"
-    https_proxy: "{{ proxy_url }}"
-  dnf:
-    name: nfs-utils
-    state: present

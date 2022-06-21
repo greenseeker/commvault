@@ -1,5 +1,0 @@
-/var/log/staging/knockd.log {
-    daily
-    rotate 5
-    size 10M
-}

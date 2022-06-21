@@ -1,8 +1,0 @@
----
-- name: Execute "{{ distro_abbreviation }}.yaml"
-# By naming the per-distro task files in a specific pattern, we don't need 
-# conditional statements. See README.md for more info.
-  include_tasks: "{{ item }}"
-  with_first_found:
-    - files: "{{ distro_abbreviation }}.yaml"
-      skip: true

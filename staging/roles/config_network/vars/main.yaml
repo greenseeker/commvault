@@ -1,3 +1,0 @@
----
-nic_list: "{{ ansible_interfaces|difference('lo') }}"
-redhat_nic_file: "/etc/sysconfig/network-scripts/ifcfg-{{ nic_list[0] }}"
