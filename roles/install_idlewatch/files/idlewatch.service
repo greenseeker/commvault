@@ -1,0 +1,15 @@
+[Unit]
+Description=Idlewatch HTTP server
+Requires=network.target
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/staging/idlewatch/idlewatch.py
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=60s
+SendSIGHUP=yes
+
+[Install]
+WantedBy=multi-user.target

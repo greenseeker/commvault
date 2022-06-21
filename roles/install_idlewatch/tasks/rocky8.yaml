@@ -1,0 +1,7 @@
+- name: Rocky 8 Firewall for idlewatch
+  ignore_errors: yes
+  ansible.posix.firewalld:
+    port: 32000/tcp
+    permanent: yes
+    state: enabled
+    immediate: yes

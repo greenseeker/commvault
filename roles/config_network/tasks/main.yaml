@@ -1,0 +1,103 @@
+---
+- name: Fix hostname case
+# SCVMM sets the hostname in ALLCAPS. Change it to lowercase.
+  ignore_errors: yes
+  hostname:
+    name: "{{ host }}"
+    use: systemd
+
+- name: Add loopback to /etc/hosts
+# Throughout this process different components will expect to use the
+# system's new hostname and some will expect to use the template hostname.
+# Adding the template hostname to loopback satisfies this need.
+  ignore_errors: yes
+  lineinfile:
+    path: /etc/hosts
+    mode: '0644'
+    owner: root
+    group: root
+    regexp: '^127\.0\.0\.1.+'
+    line: "127.0.0.1 localhost {{ distro_abbreviation }}template"
+    state: present
+
+- name: Add FQDN to /etc/hosts entry
+# This is how Linux determines its FQDN, not from 'hostnamectl', 
+# 'hostname -f', or /etc/hostname.
+  ignore_errors: yes
+  lineinfile:
+    path: /etc/hosts
+    mode: '0644'
+    owner: root
+    group: root
+    regexp: "^{{ ip }}.+"
+    line: "{{ ip }} {{ fqdn }} {{ host }}"
+    state: present
+
+- name: Update DNS info on RHEL-based distros
+# The nmcli module is breaking things so we're editing the ifcfg file 
+# directly.
+  lineinfile:
+    name: "{{ redhat_nic_file }}"
+    state: present
+    regexp: "{{ item.regex }}"
+    line: "{{ item.text }}"
+  loop:
+    - {regex: "^DOMAIN=.+", text: 'DOMAIN="gp.cv.commvault.com commvault.com"'}
+    - {regex: "^DNS1=.+", text: "DNS1=172.20.48.11"}
+    - {regex: "^DNS2=.+", text: "DNS2=172.20.48.12"}
+  when: ansible_os_family == "RedHat"
+
+- name: Restart NetworkManager
+# Apply the config from the updated ifcfg file.
+  systemd:
+    name: NetworkManager
+    state: restarted
+
+- name: Delete ssh host keys
+# These may have the template hostname in them, so they need to be deleted and
+# regenerated.
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_fileglob:
+    - "/etc/ssh/ssh_host_*"
+
+- name: Restart sshd to regenerate host keys
+# Restarting sshd will generate new host keys with the new hostname.
+  systemd:
+    name: sshd
+    state: restarted
+
+- name: Install bind-utils
+# This provides nsupdate, needed below.
+  ignore_errors: yes
+  environment: 
+    # These environment variables allow internet access.
+    http_proxy: "{{ proxy_url }}"
+    https_proxy: "{{ proxy_url }}"
+  yum:
+    name: bind-utils
+    state: present
+
+- name: Write /run/staging/nsupdate.cfg
+# nsupdate takes its commands from a text file.
+  lineinfile:
+    path: /run/staging/nsupdate.cfg
+    create: yes
+    group: root
+    owner: root
+    mode: '0600'
+    state: present
+    line: "{{ item }}"
+  loop:
+    - update add {{ fqdn }} 3600 A {{ ip }}
+    - send
+
+- name: Update DNS A record from /run/staging/nsupdate.cfg
+# Creating the A record for this server in staging DNS.
+  ignore_errors: yes
+  command: /usr/bin/nsupdate /run/staging/nsupdate.cfg
+
+- name: Open CS firewall ports
+# Open CS-related ports in the firewall.
+  include_tasks: "{{ distro_abbreviation }}.yaml"

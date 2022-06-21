@@ -1,0 +1,44 @@
+---
+- name: Edit bash.bash_logout to touch .LASTACTIVITY
+# This script is run when users log out, touching the .LASTACTIVITY file update
+# the idle time point of reference.
+  lineinfile:
+    path: /etc/bash.bash_logout
+    create: yes
+    search_string: '/usr/bin/touch /var/log/staging/.LASTACTIVITY'
+    line: '/usr/bin/touch /var/log/staging/.LASTACTIVITY'
+    state: present
+
+- name: Install idlewatch script
+# Copies the Python script to /opt/staging/idlewatch.
+  copy:
+    src: idlewatch.py
+    dest: /opt/staging/idlewatch/
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install idlewatch service
+# Copies the systemd service definition file into place.
+  copy:
+    src: idlewatch.service
+    dest: /etc/systemd/system/
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Start and enable idlewatch service
+# Start the idlewatch service and set it to start automatically on boot.
+  systemd:
+    name: idlewatch.service
+    daemon-reload: yes
+    state: started
+    enabled: yes
+
+- name: Open port 32000
+# By naming the per-distro task files in a specific pattern, we don't need 
+# conditional statements. See README.md for more info.
+  include_tasks: "{{ item }}"
+  with_first_found:
+    - files: "{{ distro_abbreviation }}.yaml"
+      skip: true

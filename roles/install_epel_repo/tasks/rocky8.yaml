@@ -1,0 +1,9 @@
+---
+- name: Install/Update EPEL repo
+  ignore_errors: yes
+  environment: 
+    http_proxy: "{{ proxy_url }}"
+    https_proxy: "{{ proxy_url }}"
+  dnf:
+    name: epel-release
+    state: latest
