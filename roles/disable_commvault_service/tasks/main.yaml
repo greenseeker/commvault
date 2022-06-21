@@ -1,7 +1,0 @@
----
-- name: Stop and Disable Commvault services
-  ignore_errors: yes
-  systemd:
-    name: commvault.Instance001.service
-    state: stopped
-    enabled: no

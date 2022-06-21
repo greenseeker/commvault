@@ -1,7 +1,0 @@
-- name: Rocky 8 Firewall for Gotty
-  ignore_errors: yes
-  ansible.posix.firewalld:
-    port: 8080/tcp
-    permanent: yes
-    state: enabled
-    immediate: yes
