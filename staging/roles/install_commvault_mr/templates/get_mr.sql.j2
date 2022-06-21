@@ -1,0 +1,3 @@
+use commserv
+set nocount on
+SELECT DISTINCT UPNumber FROM simInstalledPackages WHERE ClientId = 2 AND HighestSP = {{ fr_num }} ORDER BY UPNumber DESC

@@ -1,0 +1,106 @@
+---
+- name: Start/Enable SQL Server
+# Make sure MSSQL is running.
+  systemd:
+    name: mssql-server.service
+    state: started
+
+- name: Create /run/staging and /run/staging/update directories
+# Make sure these exists before trying to use them.
+  file:
+    path: /run/staging/update
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+## Need to transition to using the new custom module:
+#- name: Get Maintenance Release from infofile.json
+#  find_mr_number:
+#    infofile_path: /home/carl/Projects/staging/excluded
+#  register: customer_mr_num
+
+- name: Create /run/staging/get_mr.sql from template
+# Create get_mr.sql from get_mr.sql.j2 template.
+  template:
+    src: get_mr.sql.j2
+    dest: /run/staging/get_mr.sql
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Wait until SQL Server is ready
+# Make sure SQL Server is responsive before continuing.
+  wait_for: 
+    port: 1433
+    state: started
+    timeout: 300
+
+- name: Query the CSDB for the customer's MR
+# Query the restored CSDB to see what MR the customer had installed.
+  command: "{{ sqlcmd_run_script }} /run/staging/get_mr.sql"
+  register: customer_mr_num
+
+- name: Extract MR number from object
+# We only care about stdout and we want it as an integer.
+  set_fact:
+    customer_mr_num: "{{ customer_mr_num.stdout if customer_mr_num is not skipped else 0|int }}"
+
+- name: Install Maintenance Release
+  block:
+    - name: Check for MR availability
+    # Make sure the MR exists on the share before we attempt to install it.
+      ignore_errors: yes
+      check_mode: yes
+      file:
+        path: "/mnt/cvupdates/11.0.0/BUILD80/SP{{ fr_num }}/linux-x8664/CumulativeUpdatePacks/CU{{ customer_mr_num }}"
+      register: mr_exist_check
+
+    - name: Find needed MR files
+    # Get the contents of the directory containing the MR patches.
+      find:
+        paths: "/mnt/cvupdates/11.0.0/BUILD80/SP{{ fr_num }}/linux-x8664/CumulativeUpdatePacks/CU{{ customer_mr_num }}"
+        file_type: any
+      register: mr_find_path
+
+    - name: Compile file list
+    # Convert find results into a list for the linking task below.
+      set_fact:
+        mr_filelist: "{{ mr_filelist + [item.path] }}"
+      with_items: "{{ mr_find_path.files }}"
+
+    - name: Create links to the MR subdirectories and InstallUpdates binary
+    # Instead of copying the MR locally, we save time by creating symlinks to 
+    # everything in one place and then executing InstallUpdates.
+      file:
+        dest: "/run/staging/update/{{ item|basename }}"
+        src: "{{ item }}"
+        state: link
+      with_items:
+        - "{{ mr_filelist }}"
+        - /opt/commvault/Base/InstallUpdates
+
+    - name: Install 11.{{ fr_num }}.{{ customer_mr_num }}
+    # Install the Maintenance Release. We use ionice to run this at the highest
+    # priority to get it done as fast as possible.
+      command:
+        chdir: /run/staging/update
+        cmd: /usr/bin/ionice -c1 -n0 ./InstallUpdates -silent -noStartSvc -doNotUpdateDB -binaryOnly -vm Instance001
+
+  rescue:
+    - name: Update staging report, MR not found
+    # If the MR wasn't found on the share, write that in the staging report.
+      ignore_errors: yes
+      lineinfile:
+        path: /root/staging_report.txt
+        create: yes
+        line: "MR{{ customer_mr_num }} not found on /mnt/cvupdates."
+      when: mr_exist_check.state == 'absent'
+
+    - name: Update staging report, MR install failed
+    # If MR install failed, write it in the staging report.
+      ignore_errors: yes
+      lineinfile:
+        path: /root/staging_report.txt
+        create: yes
+        line: "MR{{ customer_mr_num }} installation failed."

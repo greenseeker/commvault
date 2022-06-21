@@ -1,0 +1,20 @@
+---
+- name: Install/Update cvpysdk
+  ignore_errors: yes
+  environment: 
+    http_proxy: "{{ proxy_url }}"
+    https_proxy: "{{ proxy_url }}"
+  pip:
+    executable: pip3
+    name: cvpysdk
+    state: latest
+  register: install_cvpysdk
+
+- name: Update staging report
+  # If updating cvpysdk failed, write it to the report file.
+  lineinfile:
+    path: /root/staging_report.txt
+    create: yes
+    line: CVPySDK was not updated to the latest version.
+  when: install_cvpysdk.failed|bool
+...

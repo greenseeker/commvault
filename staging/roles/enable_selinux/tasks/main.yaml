@@ -1,0 +1,26 @@
+---
+- name: Install libselinux-python3
+# This is required by the selinux module used below.
+  ignore_errors: yes
+  environment:
+    http_proxy: "{{ proxy_url }}"
+    https_proxy: "{{ proxy_url }}"
+  yum:
+    name: libselinux-python3
+    state: present
+
+- name: Put SELinux in enforcing mode
+  ignore_errors: yes
+  selinux:
+    policy: targeted
+    state: enforcing
+  register: enable_selinux
+
+- name: Update staging report
+  # If enabling SELinux failed, write it to the report file.
+  lineinfile:
+    path: /root/staging_report.txt
+    create: yes
+    line: Failed to enable SELinux.
+  when: enable_selinux.failed|bool
+...
