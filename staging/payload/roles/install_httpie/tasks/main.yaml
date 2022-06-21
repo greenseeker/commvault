@@ -1,0 +1,27 @@
+---
+- name: Execute "{{ distro_abbreviation }}.yaml"
+# By naming the per-distro task files in a specific pattern, we don't need 
+# conditional statements. See README.md for more info.
+  include_tasks: "{{ item }}"
+  with_first_found:
+    - files: "{{ distro_abbreviation }}.yaml"
+      skip: true
+
+- name: Copy httpie profile scripts to /etc/profile.d
+# This script runs at user login to create aliases for 'http' and 'https'
+# commands to use persistent sessions.
+  copy:
+    src: httpie.sh
+    dest: /etc/profile.d
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install httpie json templates
+  copy:
+    src: login.json
+    dest: /root/rest/
+    owner: root
+    group: root
+    mode: '0644'
+...

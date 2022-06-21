@@ -1,0 +1,28 @@
+---
+- name: Install Inbucket
+  ignore_errors: yes
+  environment: 
+    http_proxy: "{{ proxy_url }}"
+    https_proxy: "{{ proxy_url }}"  
+  dnf:
+    name: inbucket_3.0.1-rc2_linux_amd64.rpm
+    state: installed
+
+- name: Copy the service override file
+  copy:
+    src: override.conf
+    dest: /etc/systemd/system/inbucket.service.d/
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Open port 8081 in the firewall
+  include_tasks: "{{ distro_abbreviation }}.yaml"
+
+- name: Start and enable Inbucket service
+# Start the Inbucket service and set it to start automatically on boot.
+  systemd:
+    name: inbucket.service
+    daemon-reload: yes
+    state: started
+    enabled: yes
