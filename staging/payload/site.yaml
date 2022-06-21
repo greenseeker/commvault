@@ -1,0 +1,52 @@
+---
+- hosts: localhost
+  vars:
+    database_path: "NODB"                             # This should be overwritten by the parameter file.
+    install_hpk: False                                # Indicates to install the maintenance release matching the customer's environment. This should be overwritten by the parameter file.
+    test_mode: False                                  # Determines whether to delete files during cleanup, or move them to /tmp. This should be overwritten by the parameter file.
+    host: "{{ ansible_hostname|lower }}"
+    fqdn: "{{ host }}.staging.ce.commvault.com"
+    distro_abbreviation: "{{ ansible_distribution|lower }}{{ ansible_distribution_major_version }}" # centos7, rocky8, etc
+    fr_num: "{{ lookup('file', '/etc/CommVaultRegistry/Galaxy/Instance001/.properties') | regex_search('sProductVersion.+\n') | regex_replace('sProductVersion.+11.([0-9]+)..*\n', '\\1') }}"
+    ip: "{{ ansible_default_ipv4.address }}"
+    new_root_password: "cv_{{ host }}"
+    sqlcmd_run_script: "/opt/mssql-tools/bin/sqlcmd -U sa -P '{{ new_root_password }}' -b -h -1 -m 1 -i"
+
+  pre_tasks:
+    - name: Read parameter file
+    # This imports the parameters passed to initiator.py by SCVMM
+      include_vars:
+        file: /run/staging/parameters.yaml
+    - name: List variables
+      debug:
+        msg: "database_path: {{ database_path }} - install_hpk: {{ install_hpk }} - test_mode: {{ test_mode }} - host: {{ host }} - fqdn: {{ fqdn }}"
+
+  roles:
+    - role: config_network
+    - role: install_security_bugfix_updates
+    - role: modify_users
+    - role: install_profile_scripts
+    - role: mount_nfs
+    - role: install_gotty
+    - role: install_staginghelp
+    - role: install_cvpysdk
+    - role: install_dtach
+    - role: install_httpie
+    - role: install_iredis
+    - role: install_json_tools
+    - role: install_mailhog
+    - role: install_mssql_utils
+    - role: install_multitail
+    - role: install_nmap
+    - role: install_p7zip
+    - role: install_pwsh
+    - role: install_vim
+    - role: prep_mssql
+    - role: stage_db
+    - role: install_carbonblack
+    - role: install_commvault_mr
+      when: install_hpk|bool
+    - role: install_idlewatch
+    - role: disable_commvault_service
+    - role: cleanup
+    - role: enable_selinux
