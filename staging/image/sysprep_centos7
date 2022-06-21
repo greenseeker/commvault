@@ -1,0 +1,186 @@
+#!/bin/bash
+
+printf "%s\n%s" "This script will prep this VM for use as a template then power it off." "Press ENTER to continue or Ctrl-C to abort: "
+read
+
+unset HISTFILE
+unalias -a
+history -c
+
+export http_proxy=http://172.19.240.161:9888     # Shh! Top secret back door to the internets.
+export https_proxy=${http_proxy}
+
+if [[ -f "/etc/yum.repos.d/mssql-server.repo" ]] 
+then 
+  printf "\n\n>>> %s\n" "MSSQL repo already configured" 
+else
+  printf "\n\n>>> %s...\n" "Configuring MSSQL repo" 
+  curl -o /etc/yum.repos.d/mssql-server.repo https://packages.microsoft.com/config/rhel/7/mssql-server-2019.repo
+fi
+
+printf "\n\n>>> %s...\n" "Make sure EPEL is installed"
+/usr/bin/yum -y install epel-release
+
+printf "\n\n>>> %s...\n" "Confirming repo.yaml is present"
+if [[ ! -f "/etc/staging/repo.yaml" ]]
+then
+  printf "%s\n" '!!! ERROR: /etc/staging/repo.yaml not found. This file needs to be manually created.'
+  exit 1
+fi
+
+printf "\n\n>>> %s...\n" "Stopping rsyslog"
+/usr/bin/systemctl stop rsyslog
+
+printf "\n\n>>> %s...\n" "Stopping audit logging"
+/usr/sbin/auditctl -e0
+
+printf "\n\n>>> %s...\n" "Setting SELINUX=permissive"
+/usr/bin/sed -i 's/^SELINUX=.*/SELINUX=permissive/g' /etc/selinux/config
+
+printf "\n\n>>> %s...\n" "Blanking machine-id"
+echo -n > /etc/machine-id
+ln -sf /etc/machine-id /var/lib/dbus/machine-id
+
+printf "\n\n>>> %s...\n" "Setting default SQL Server SA password"
+/usr/bin/systemctl stop mssql-server
+MSSQL_SA_PASSWORD='1StrongPassword!' /opt/mssql/bin/mssql-conf set-sa-password 
+/usr/bin/systemctl start mssql-server
+
+printf "\n\n>>> %s...\n" "Setting AccountLockDuration = 1"
+/opt/mssql-tools/bin/sqlcmd -l 300 -U sa -P '1StrongPassword!' -d 'CommServ' -h -1 -Q "update GxGlobalParam set value = 1 where name = 'AccountLockDuration'"
+
+printf "\n\n>>> %s...\n" "Installing yum packages"
+/usr/bin/yum -y install deltarpm
+/usr/bin/yum -y install bind-utils gdb git java-latest-openjdk jq mssql-cli mssql-tools multitail nfs-utils p7zip p7zip-plugins policycoreutils-python python3 python3-pip vim-enhanced powershell yum-utils
+# Reasons for above packages:
+#   deltarpm: Smaller yum downloads.
+# 
+#   bind-utils: Provides nsupdate, used in config_network role.
+#   gdb: Provides gdb, gcore, and other debugging tools.
+#   git: Needed by ansible-pull (initiator.py).
+#   jq: For filtering json.
+#   mssql-cli and mssql-tools: SQL Server utilities.
+#   multitail: For monitoring log files.
+#   nfs-utils: Access shares on eng and titan.
+#   p7zip and p7zip-plugins: Work with .zip, .7z, .rar, etc.
+#   policycoreutils-python: Provides Python bindings (required by ansible.posix.selinux, enable_selinux role) and SELinux management utils.
+#   powershell: Popular option for REST automation.
+#   python3 and python3-pip: login.py, staginghelp, initiator.py, CVPySDK.
+#   vim-enhanced: Text editor.
+#   yum-utils: Provides package-cleanup, used below.
+
+printf "\n\n>>> %s...\n" "Make sure Postfix is uninstalled"
+/usr/bin/yum -y remove postfix
+
+printf "\n\n>>> %s...\n" "Installing yum updates"
+/usr/bin/yum -y update
+
+printf "\n\n>>> %s...\n" "Updating pip"
+/usr/bin/python3 -m pip install -U pip
+
+printf "\n\n>>> %s...\n" "Installing/Updating PyPI packages"
+/usr/local/bin/pip3 install -U cvpysdk pipx ansible==4.9.0
+which http || /usr/local/bin/pipx install httpie 
+which http-prompt || /usr/local/bin/pipx install http-prompt 
+which iredis || /usr/local/bin/pipx install iredis
+which yamllint || /usr/local/bin/pipx install yamllint
+/usr/local/bin/pipx upgrade-all
+
+printf "\n\n>>> %s...\n" "Linting /etc/staging/repo.yaml"
+if ! yamllint -d "{ extends: default, rules: { line-length: { max: 500 }}}" /etc/staging/repo.yaml
+then
+  printf "%s\n" '!!! ERROR: Fix the errors reported in /etc/staging/repo.yaml.'
+  exit 1
+fi
+
+printf "\n\n>>> %s...\n" "Cleaning yum caches"
+/usr/bin/yum -y clean all
+
+printf "\n\n>>> %s...\n" "Deleting /root/.cache/ contents"
+/usr/bin/rm -rf /root/.cache/*
+
+printf "\n\n>>> %s...\n" "Removing old kernels"
+/usr/bin/package-cleanup -y --oldkernels --count=1
+
+printf "\n\n>>> %s...\n" "Removing unnecessary yum packages"
+/usr/bin/yum -y autoremove
+
+printf "\n\n>>> %s...\n" "Setting time zone to Etc/UTC"
+/usr/bin/timedatectl set-timezone Etc/UTC
+
+printf "\n\n>>> %s...\n" "Disabling commvault and mssql-server"
+/usr/bin/systemctl disable --now commvault.Instance001.service
+/usr/bin/systemctl disable --now mssql-server.service
+
+printf "\n\n>>> %s...\n" "Deleting CSDR backups, IndexCache, and Commvault Log_Files"
+for inst in /etc/CommVaultRegistry/Galaxy/Instance*
+do 
+  /usr/bin/rm -rf $(/usr/bin/awk '/dEVLOGDIR / { print $2 }' $inst/EventManager/.properties)
+  /usr/bin/rm -rf $(/usr/bin/awk '/dFSINDEXCACHE / { print $2 }' $inst/Machines/*/.properties)
+  /usr/bin/rm -rf $(/usr/bin/awk '/^sCSDRPATH / { print $2 }' $inst/CommServe/.properties)
+done
+
+printf "\n\n>>> %s...\n" "Clearing cached Commserve names for the Java login"
+[ -f /root/.Commcell/CommcellList ] && /usr/bin/rm /root/.Commcell/CommcellList
+
+printf "\n\n>>> %s...\n" "Installing SCVMM guest agent"
+if [[ -d "/root/scvmmguestagent" ]]
+then
+  /root/scvmmguestagent/bin/install /root/scvmmguestagent/scvmmguestagent.*.x64.tar
+  # We can't abort based on exit code because "already installed, nothing to do" 
+  # returns 1 and I don't know if real failures have a different exit code.
+else
+  printf "%s\n" '!!! ERROR: /root/scvmmguestagent NOT FOUND'
+  exit 1
+fi
+
+printf "\n\n>>> %s...\n" "Rotating logs"
+/usr/sbin/logrotate -f /etc/logrotate.conf
+
+printf "\n\n>>> %s...\n" "Deleting old logs"
+/usr/bin/rm -rf /var/log/*-???????? /var/log/*.gz /var/log/dmesg.old /var/log/anaconda /var/log/.gxsetup
+[ -f /var/log/audit/audit.log ] && echo > /var/log/audit/audit.log
+[ -f /var/log/wtmp ] && echo > /var/log/wtmp
+[ -f /var/log/lastlog ] && echo > /var/log/lastlog
+[ -f /var/log/grubby ] && echo > /var/log/grubby
+[ -f /var/log/ansible.log ] && /usr/bin/rm /var/log/ansible.log
+[ -d /root/.ansible ] && /usr/bin/rm -rf /root/.ansible
+[ -f /root/.viminfo ] && /usr/bin/rm /root/.viminfo 
+/usr/bin/rm -f /var/log/staging/*
+/usr/bin/rm -f /root/.config/mssqlcli/mssqlcli.log* /root/.config/mssqlcli/mssqlcli_telemetry* /root/.config/mssqlcli/history
+/usr/bin/rm -rf /root/.local/pipx/.cache
+
+printf "\n\n>>> %s...\n" "Deleting root's Python cache"
+[ -d /root/__pycache__ ] && rm -rf /root/__pycache__
+
+printf "\n\n>>> %s...\n" "Deleting root's Desktop directory"
+[ -d /root/Desktop ] && rm -rf /root/Desktop
+
+printf "\n\n>>> %s...\n" "Deleting SQL Server logs"
+/usr/bin/rm -rf /var/opt/mssql/log/*
+
+printf "\n\n>>> %s...\n" "Deleting udev rules"
+/usr/bin/rm -f /etc/udev/rules.d/70*
+
+printf "\n\n>>> %s...\n" "Deleting bash history"
+/usr/bin/rm -f /root/.bash_history 
+/usr/bin/rm -f /home/*/.bash_history
+
+printf "\n\n>>> %s...\n" "Deleting contents of /tmp and /var/tmp"
+/usr/bin/rm -rf /tmp/* /var/tmp/*
+
+printf "\n\n>>> %s...\n" "Reorganizing $(echo /dev/*/root)"
+/usr/sbin/xfs_fsr /dev/*/root
+
+printf "\n\n>>> %s...\n" "Running fstrim and enabling fstrim.timer"
+/usr/sbin/fstrim -a
+/usr/bin/systemctl enable fstrim.timer
+
+printf "\n\n>>> %s...\n" "Creating /.autorelabel"
+/usr/bin/touch /.autorelabel
+
+printf "\n\n>>> %s...\n" "Shutting down in 5 sec"
+sleep 5
+poweroff
+
+# eof
